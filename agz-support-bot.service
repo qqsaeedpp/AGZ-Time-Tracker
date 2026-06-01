@@ -1,0 +1,14 @@
+[Unit]
+Description=AGZ Support Time Telegram Bot
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/agz-support-time-bot
+ExecStart=/opt/agz-support-time-bot/.venv/bin/python -m app.main
+Restart=always
+RestartSec=5
+EnvironmentFile=/opt/agz-support-time-bot/.env
+
+[Install]
+WantedBy=multi-user.target
