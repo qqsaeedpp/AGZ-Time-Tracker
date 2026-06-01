@@ -14,10 +14,6 @@ def user_display(username: str | None, first_name: str | None) -> str:
     return "کاربر"
 
 
-def format_shift_end(minutes: int) -> str:
-    return f"پایان پاسخگویی ثبت شد.\n\nمدت پاسخگویی:\n{minutes} دقیقه"
-
-
 def format_daily_report(report: "DailyReport") -> str:
     lines: list[str] = []
     lines.append("📊 گزارش پاسخگویی")

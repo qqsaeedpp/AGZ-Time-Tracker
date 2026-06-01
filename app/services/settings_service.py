@@ -12,6 +12,14 @@ class ReportTargetInfo:
     message_thread_id: int | None
 
 
+@dataclass
+class TextSettingData:
+    text_key: str
+    text_value: str
+    custom_emoji_id: str | None
+    formatting_config: str | None
+
+
 # --------------------------- Report target ---------------------------
 async def install_report_target(
     chat_id: int, message_thread_id: int | None, installed_by: int
@@ -56,6 +64,41 @@ async def set_custom_value(key: str, value: str) -> None:
 async def get_all_custom_values() -> dict[str, str]:
     async with session_factory() as session:
         return await repo.get_all_settings(session)
+
+
+# --------------------------- Customizable rich texts ---------------------------
+def _to_data(setting) -> TextSettingData:
+    return TextSettingData(
+        text_key=setting.text_key,
+        text_value=setting.text_value,
+        custom_emoji_id=setting.custom_emoji_id,
+        formatting_config=setting.formatting_config,
+    )
+
+
+async def get_text_setting(text_key: str) -> TextSettingData | None:
+    async with session_factory() as session:
+        setting = await repo.get_text_setting(session, text_key)
+        return _to_data(setting) if setting is not None else None
+
+
+async def set_text_setting(
+    text_key: str,
+    text_value: str,
+    custom_emoji_id: str | None,
+    formatting_config: str | None,
+) -> None:
+    async with session_factory() as session:
+        async with session.begin():
+            await repo.upsert_text_setting(
+                session, text_key, text_value, custom_emoji_id, formatting_config
+            )
+
+
+async def get_all_text_settings() -> dict[str, TextSettingData]:
+    async with session_factory() as session:
+        settings = await repo.get_all_text_settings(session)
+        return {k: _to_data(v) for k, v in settings.items()}
 
 
 # --------------------------- Maintenance ---------------------------

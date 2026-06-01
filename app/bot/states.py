@@ -9,6 +9,7 @@ class AdminFlow(StatesGroup):
     waiting_remove_access_user_id = State()
     waiting_custom_text_key = State()
     waiting_custom_text_value = State()
+    waiting_custom_text_emoji = State()
     waiting_custom_button_key = State()
     waiting_custom_button_value = State()
     confirm_delete_step_1 = State()

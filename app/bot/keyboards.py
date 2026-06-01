@@ -27,14 +27,17 @@ class CB:
 
 
 # Default button captions (overridable via custom-button settings).
+# NOTE: inline-keyboard button text does NOT support premium/custom emoji — only
+# plain unicode emoji are allowed here (see README). Colored circle emoji are
+# used to visually distinguish actions.
 DEFAULT_BUTTONS = {
-    CB.START_SHIFT: "شروع پاسخگویی",
-    CB.END_SHIFT: "پایان پاسخگویی",
-    CB.DAILY_REPORT: "گزارش روزانه",
-    CB.MONTHLY_REPORT: "گزارش ماهانه",
-    CB.SUPPORT: "پشتیبانی ربات",
-    CB.TODAY: "تاریخ امروز",
-    CB.ADMIN_PANEL: "پنل مدیریت",
+    CB.START_SHIFT: "🟢 شروع پاسخگویی",
+    CB.END_SHIFT: "🔴 پایان پاسخگویی",
+    CB.DAILY_REPORT: "🔵 گزارش روزانه",
+    CB.MONTHLY_REPORT: "📘 گزارش ماهانه",
+    CB.SUPPORT: "🛟 پشتیبانی ربات",
+    CB.TODAY: "🕒 تاریخ امروز",
+    CB.ADMIN_PANEL: "⚙️ پنل مدیریت",
 }
 
 
@@ -82,29 +85,29 @@ def main_menu(is_owner: bool, labels: dict[str, str] | None = None) -> InlineKey
 
 def admin_panel() -> InlineKeyboardMarkup:
     rows = [
-        [InlineKeyboardButton(text="ارسال همگانی", callback_data=CB.ADM_BROADCAST)],
+        [InlineKeyboardButton(text="📣 ارسال همگانی", callback_data=CB.ADM_BROADCAST)],
         [
             InlineKeyboardButton(
-                text="اضافه کردن دسترسی", callback_data=CB.ADM_ADD_ACCESS
+                text="➕ افزودن دسترسی", callback_data=CB.ADM_ADD_ACCESS
             ),
             InlineKeyboardButton(
-                text="حذف دسترسی", callback_data=CB.ADM_REMOVE_ACCESS
+                text="➖ حذف دسترسی", callback_data=CB.ADM_REMOVE_ACCESS
             ),
         ],
         [
             InlineKeyboardButton(
-                text="شخصی‌سازی متن‌ها", callback_data=CB.ADM_CUSTOM_TEXT
+                text="✏️ شخصی‌سازی متن‌ها", callback_data=CB.ADM_CUSTOM_TEXT
             ),
             InlineKeyboardButton(
-                text="شخصی‌سازی دکمه‌ها", callback_data=CB.ADM_CUSTOM_BUTTON
+                text="🔘 شخصی‌سازی دکمه‌ها", callback_data=CB.ADM_CUSTOM_BUTTON
             ),
         ],
         [
             InlineKeyboardButton(
-                text="پاک کردن تمامی اطلاعات", callback_data=CB.ADM_WIPE
+                text="🧹 پاک کردن اطلاعات", callback_data=CB.ADM_WIPE
             )
         ],
-        [InlineKeyboardButton(text="بازگشت", callback_data=CB.ADM_BACK)],
+        [InlineKeyboardButton(text="↩️ بازگشت", callback_data=CB.ADM_BACK)],
     ]
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -112,8 +115,8 @@ def admin_panel() -> InlineKeyboardMarkup:
 def wipe_confirm_step_1() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="بله", callback_data=CB.WIPE_CONFIRM_1)],
-            [InlineKeyboardButton(text="انصراف", callback_data=CB.WIPE_CANCEL)],
+            [InlineKeyboardButton(text="✅ بله", callback_data=CB.WIPE_CONFIRM_1)],
+            [InlineKeyboardButton(text="↩️ انصراف", callback_data=CB.WIPE_CANCEL)],
         ]
     )
 
@@ -123,10 +126,10 @@ def wipe_confirm_step_2() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="تایید نهایی", callback_data=CB.WIPE_CONFIRM_2
+                    text="🗑 تایید نهایی", callback_data=CB.WIPE_CONFIRM_2
                 )
             ],
-            [InlineKeyboardButton(text="انصراف", callback_data=CB.WIPE_CANCEL)],
+            [InlineKeyboardButton(text="↩️ انصراف", callback_data=CB.WIPE_CANCEL)],
         ]
     )
 
@@ -134,6 +137,6 @@ def wipe_confirm_step_2() -> InlineKeyboardMarkup:
 def back_to_admin() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="بازگشت", callback_data=CB.ADM_BACK)]
+            [InlineKeyboardButton(text="↩️ بازگشت", callback_data=CB.ADM_BACK)]
         ]
     )

@@ -140,3 +140,27 @@ class ActionLog(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=_NOW, nullable=False
     )
+
+
+class TextSetting(Base):
+    """Owner-customizable message text plus optional premium (custom) emoji.
+
+    - ``text_value`` is the raw message body (plain text; bold/italic are
+      applied at render time via message entities, never parse_mode).
+    - ``custom_emoji_id`` is the numeric id of a Telegram premium/custom emoji
+      used as the leading icon. When NULL the renderer falls back to a normal
+      unicode emoji, so messages keep working without premium emoji.
+    - ``formatting_config`` is a small JSON blob (e.g. ``{"bold_title": true}``)
+      describing which formatting to apply when rendering.
+    """
+
+    __tablename__ = "text_settings"
+    __table_args__ = _MYSQL_TABLE
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    text_key: Mapped[str] = mapped_column(
+        String(64), unique=True, index=True, nullable=False
+    )
+    text_value: Mapped[str] = mapped_column(Text, nullable=False)
+    custom_emoji_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    formatting_config: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -13,6 +13,7 @@ from app.database.models import (
     ReportTarget,
     Setting,
     Shift,
+    TextSetting,
     User,
 )
 
@@ -145,6 +146,45 @@ async def set_setting(session: AsyncSession, key: str, value: str) -> None:
 async def get_all_settings(session: AsyncSession) -> dict[str, str]:
     result = await session.execute(select(Setting))
     return {s.key: s.value for s in result.scalars().all()}
+
+
+# ----------------------------- TextSettings -----------------------------
+async def get_text_setting(
+    session: AsyncSession, text_key: str
+) -> TextSetting | None:
+    result = await session.execute(
+        select(TextSetting).where(TextSetting.text_key == text_key)
+    )
+    return result.scalar_one_or_none()
+
+
+async def upsert_text_setting(
+    session: AsyncSession,
+    text_key: str,
+    text_value: str,
+    custom_emoji_id: str | None,
+    formatting_config: str | None,
+) -> TextSetting:
+    setting = await get_text_setting(session, text_key)
+    if setting is None:
+        setting = TextSetting(
+            text_key=text_key,
+            text_value=text_value,
+            custom_emoji_id=custom_emoji_id,
+            formatting_config=formatting_config,
+        )
+        session.add(setting)
+    else:
+        setting.text_value = text_value
+        setting.custom_emoji_id = custom_emoji_id
+        setting.formatting_config = formatting_config
+    await session.flush()
+    return setting
+
+
+async def get_all_text_settings(session: AsyncSession) -> dict[str, TextSetting]:
+    result = await session.execute(select(TextSetting))
+    return {s.text_key: s for s in result.scalars().all()}
 
 
 # ----------------------------- ReportTarget -----------------------------

@@ -5,7 +5,7 @@ from aiogram.types import CallbackQuery
 
 from app.bot.keyboards import CB
 from app.database.models import User
-from app.handlers.common import NO_ACCESS, get_text
+from app.handlers.common import NO_ACCESS, menu_markup, render, safe_edit_or_send
 from app.services import reports_service
 from app.utils.formatters import format_daily_report, format_monthly_report
 
@@ -18,14 +18,16 @@ async def on_daily_report(callback: CallbackQuery, db_user: User) -> None:
         await callback.answer(NO_ACCESS, show_alert=True)
         return
 
+    markup = await menu_markup(db_user)
     if not db_user.is_owner:
-        await callback.message.answer(await get_text("daily_user_notice"))
-        await callback.answer()
+        content = await render("daily_user_notice")
+        await safe_edit_or_send(callback, content, reply_markup=markup)
         return
 
     report = await reports_service.build_daily_report()
-    await callback.message.answer(format_daily_report(report))
-    await callback.answer()
+    await safe_edit_or_send(
+        callback, format_daily_report(report), reply_markup=markup
+    )
 
 
 @router.callback_query(F.data == CB.MONTHLY_REPORT)
@@ -34,11 +36,13 @@ async def on_monthly_report(callback: CallbackQuery, db_user: User) -> None:
         await callback.answer(NO_ACCESS, show_alert=True)
         return
 
+    markup = await menu_markup(db_user)
     if not db_user.is_owner:
-        await callback.message.answer(await get_text("monthly_user_notice"))
-        await callback.answer()
+        content = await render("monthly_user_notice")
+        await safe_edit_or_send(callback, content, reply_markup=markup)
         return
 
     report = await reports_service.build_monthly_report()
-    await callback.message.answer(format_monthly_report(report))
-    await callback.answer()
+    await safe_edit_or_send(
+        callback, format_monthly_report(report), reply_markup=markup
+    )
