@@ -27,8 +27,6 @@ logger = logging.getLogger(__name__)
 
 router = Router(name="common")
 
-BUTTON_PREFIX = "button:"
-
 NO_ACCESS = "شما اجازهٔ دسترسی به این ربات را ندارید."
 
 # Keys an owner may customize via the admin panel (text + premium emoji).
@@ -131,15 +129,24 @@ async def safe_edit_or_send(
         await _send(event, text, entities, reply_markup)
 
 
+async def send_report(
+    event: CallbackQuery | Message, content: str | Text
+) -> None:
+    """Always deliver a report as a brand-new message — never edit or delete the
+    previous one. Falls back to plain text if the entities are rejected (e.g. an
+    unavailable premium emoji). The callback query is still answered."""
+    text, entities = normalize(content)
+    message = event.message if isinstance(event, CallbackQuery) else event
+    if message is not None:
+        await _send(message, text, entities, None)
+    if isinstance(event, CallbackQuery):
+        await event.answer()
+
+
 # --------------------------- Menus ---------------------------
 async def menu_markup(user: User) -> InlineKeyboardMarkup:
-    custom = await settings_service.get_all_custom_values()
-    labels = {
-        k[len(BUTTON_PREFIX):]: v
-        for k, v in custom.items()
-        if k.startswith(BUTTON_PREFIX)
-    }
-    return main_menu(is_owner=user.is_owner, labels=labels)
+    overrides = await settings_service.get_all_button_settings()
+    return main_menu(is_owner=user.is_owner, overrides=overrides)
 
 
 async def show_main_menu(event: CallbackQuery | Message, user: User) -> None:

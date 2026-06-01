@@ -4,6 +4,11 @@ from dataclasses import dataclass
 
 from app.database import repositories as repo
 from app.database.db import session_factory
+from app.utils.rich import (
+    REPORT_EMOJI_PREFIX,
+    REPORT_ICON_SPECS,
+    EmojiIcon,
+)
 
 
 @dataclass
@@ -18,6 +23,14 @@ class TextSettingData:
     text_value: str
     custom_emoji_id: str | None
     formatting_config: str | None
+
+
+@dataclass
+class ButtonSettingData:
+    button_key: str
+    button_text: str | None
+    button_emoji: str | None
+    button_color: str | None
 
 
 # --------------------------- Report target ---------------------------
@@ -99,6 +112,57 @@ async def get_all_text_settings() -> dict[str, TextSettingData]:
     async with session_factory() as session:
         settings = await repo.get_all_text_settings(session)
         return {k: _to_data(v) for k, v in settings.items()}
+
+
+# --------------------------- Report icons (premium emoji) ---------------------------
+async def get_report_icons() -> dict[str, EmojiIcon]:
+    """Return the icon for every report slot, applying any owner-set premium
+    emoji and falling back to the default normal emoji otherwise."""
+    async with session_factory() as session:
+        stored = await repo.get_all_settings(session)
+    icons: dict[str, EmojiIcon] = {}
+    for slot, (char, _label) in REPORT_ICON_SPECS.items():
+        custom_id = stored.get(f"{REPORT_EMOJI_PREFIX}{slot}") or None
+        icons[slot] = EmojiIcon(char=char, custom_emoji_id=custom_id)
+    return icons
+
+
+async def set_report_emoji(slot: str, custom_emoji_id: str | None) -> None:
+    key = f"{REPORT_EMOJI_PREFIX}{slot}"
+    async with session_factory() as session:
+        async with session.begin():
+            if custom_emoji_id:
+                await repo.set_setting(session, key, custom_emoji_id)
+            else:
+                await repo.delete_setting(session, key)
+
+
+# --------------------------- Button settings ---------------------------
+async def get_all_button_settings() -> dict[str, ButtonSettingData]:
+    async with session_factory() as session:
+        settings = await repo.get_all_button_settings(session)
+        return {
+            k: ButtonSettingData(
+                button_key=v.button_key,
+                button_text=v.button_text,
+                button_emoji=v.button_emoji,
+                button_color=v.button_color,
+            )
+            for k, v in settings.items()
+        }
+
+
+async def set_button_setting(
+    button_key: str,
+    button_text: str | None,
+    button_emoji: str | None,
+    button_color: str | None,
+) -> None:
+    async with session_factory() as session:
+        async with session.begin():
+            await repo.upsert_button_setting(
+                session, button_key, button_text, button_emoji, button_color
+            )
 
 
 # --------------------------- Maintenance ---------------------------

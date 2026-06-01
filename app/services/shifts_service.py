@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from app.database import repositories as repo
 from app.database.db import session_factory
-from app.utils.datetime_utils import duration_minutes, now_tehran
+from app.utils.datetime_utils import duration_minutes, format_time_hm, now_tehran
 
 
 @dataclass
@@ -17,6 +17,29 @@ class StartResult:
 class EndResult:
     closed: bool
     minutes: int | None
+
+
+@dataclass
+class StatusResult:
+    active: bool
+    start_time: str | None = None  # "HH:MM" snapshot
+    elapsed_minutes: int | None = None  # computed once, at click time
+
+
+async def get_status(user_id: int) -> StatusResult:
+    """Return a point-in-time snapshot of the user's answering status.
+
+    The elapsed duration is computed once, at call time — it is NOT a live
+    counter and is never auto-refreshed."""
+    async with session_factory() as session:
+        active = await repo.get_active_shift(session, user_id)
+    if active is None:
+        return StatusResult(active=False)
+    return StatusResult(
+        active=True,
+        start_time=format_time_hm(active.start_time),
+        elapsed_minutes=duration_minutes(active.start_time, now_tehran()),
+    )
 
 
 async def start_shift(user_id: int) -> StartResult:

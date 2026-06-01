@@ -5,8 +5,14 @@ from aiogram.types import CallbackQuery
 
 from app.bot.keyboards import CB
 from app.database.models import User
-from app.handlers.common import NO_ACCESS, menu_markup, render, safe_edit_or_send
-from app.services import reports_service
+from app.handlers.common import (
+    NO_ACCESS,
+    menu_markup,
+    render,
+    safe_edit_or_send,
+    send_report,
+)
+from app.services import reports_service, settings_service
 from app.utils.formatters import format_daily_report, format_monthly_report
 
 router = Router(name="reports")
@@ -18,16 +24,18 @@ async def on_daily_report(callback: CallbackQuery, db_user: User) -> None:
         await callback.answer(NO_ACCESS, show_alert=True)
         return
 
-    markup = await menu_markup(db_user)
+    # Non-owners only see an informational notice (single-message UI).
     if not db_user.is_owner:
         content = await render("daily_user_notice")
-        await safe_edit_or_send(callback, content, reply_markup=markup)
+        await safe_edit_or_send(
+            callback, content, reply_markup=await menu_markup(db_user)
+        )
         return
 
+    icons = await settings_service.get_report_icons()
     report = await reports_service.build_daily_report()
-    await safe_edit_or_send(
-        callback, format_daily_report(report), reply_markup=markup
-    )
+    # Reports are ALWAYS sent as a new message (never edit/delete the menu).
+    await send_report(callback, format_daily_report(report, icons))
 
 
 @router.callback_query(F.data == CB.MONTHLY_REPORT)
@@ -36,13 +44,13 @@ async def on_monthly_report(callback: CallbackQuery, db_user: User) -> None:
         await callback.answer(NO_ACCESS, show_alert=True)
         return
 
-    markup = await menu_markup(db_user)
     if not db_user.is_owner:
         content = await render("monthly_user_notice")
-        await safe_edit_or_send(callback, content, reply_markup=markup)
+        await safe_edit_or_send(
+            callback, content, reply_markup=await menu_markup(db_user)
+        )
         return
 
+    icons = await settings_service.get_report_icons()
     report = await reports_service.build_monthly_report()
-    await safe_edit_or_send(
-        callback, format_monthly_report(report), reply_markup=markup
-    )
+    await send_report(callback, format_monthly_report(report, icons))

@@ -8,13 +8,17 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
 from app.bot.keyboards import (
+    BUTTON_ATTRS,
     CB,
-    DEFAULT_BUTTONS,
     admin_panel,
     back_to_admin,
+    button_attr_picker,
+    button_picker,
+    report_icon_picker,
     wipe_confirm_step_1,
     wipe_confirm_step_2,
 )
+from app.utils.rich import REPORT_ICON_SPECS
 from app.bot.states import AdminFlow
 from app.database.models import User
 from app.handlers.common import (
@@ -282,7 +286,7 @@ async def custom_text_value(
     )
 
 
-# ----------------------------- Custom buttons -----------------------------
+# ----------------------------- Custom buttons (text/emoji/color) -----------------------------
 @router.callback_query(F.data == CB.ADM_CUSTOM_BUTTON)
 async def custom_button_start(
     callback: CallbackQuery, db_user: User, state: FSMContext
@@ -290,31 +294,60 @@ async def custom_button_start(
     if not _is_owner(db_user):
         await callback.answer("دسترسی مدیریت ندارید.", show_alert=True)
         return
-    await state.set_state(AdminFlow.waiting_custom_button_key)
-    keys = "\n".join(f"• {k}" for k in DEFAULT_BUTTONS)
+    await state.clear()
+    overrides = await settings_service.get_all_button_settings()
     await safe_edit_or_send(
         callback,
-        "🔘 کلید دکمه مورد نظر را ارسال کنید:\n\n" + keys + "\n\n"
-        "توجه: متن دکمه‌ها فقط از ایموجی معمولی پشتیبانی می‌کند "
-        "(ایموجی پریمیوم در دکمه‌ها مجاز نیست).",
-        reply_markup=back_to_admin(),
+        "🔘 کدام دکمه را می‌خواهید شخصی‌سازی کنید؟",
+        reply_markup=button_picker(overrides),
     )
 
 
-@router.message(AdminFlow.waiting_custom_button_key)
-async def custom_button_key(
-    message: Message, db_user: User, state: FSMContext
+@router.callback_query(F.data.startswith(CB.BTN_PICK))
+async def custom_button_pick(
+    callback: CallbackQuery, db_user: User, state: FSMContext
 ) -> None:
     if not _is_owner(db_user):
+        await callback.answer("دسترسی مدیریت ندارید.", show_alert=True)
         return
-    key = (message.text or "").strip()
-    if key not in DEFAULT_BUTTONS:
-        await message.answer("کلید نامعتبر است. یکی از کلیدهای فهرست را ارسال کنید.")
+    key = callback.data[len(CB.BTN_PICK):]
+    await state.clear()
+    await safe_edit_or_send(
+        callback,
+        f"🔘 دکمه «{key}»\n\nکدام بخش را تغییر می‌دهید؟",
+        reply_markup=button_attr_picker(key),
+    )
+
+
+@router.callback_query(F.data.startswith(CB.BTN_ATTR))
+async def custom_button_attr(
+    callback: CallbackQuery, db_user: User, state: FSMContext
+) -> None:
+    if not _is_owner(db_user):
+        await callback.answer("دسترسی مدیریت ندارید.", show_alert=True)
         return
-    await state.update_data(button_key=key)
+    payload = callback.data[len(CB.BTN_ATTR):]
+    key, _, attr = payload.partition(":")
+    if attr not in BUTTON_ATTRS:
+        await callback.answer()
+        return
+    await state.update_data(button_key=key, button_attr=attr)
     await state.set_state(AdminFlow.waiting_custom_button_value)
-    await message.answer(
-        f"عنوان جدید برای دکمه «{key}» را ارسال کنید:",
+    if attr == "color":
+        hint = (
+            "یک ایموجی رنگی به‌عنوان رنگ دکمه ارسال کنید (مثلاً 🔵 🟢 🔴 🟡).\n\n"
+            "توجه: فقط ایموجی معمولی مجاز است (ایموجی پریمیوم در دکمه‌ها کار نمی‌کند)."
+        )
+    elif attr == "emoji":
+        hint = (
+            "ایموجی موضوعی دکمه را ارسال کنید (یا «حذف» برای برداشتن آن).\n\n"
+            "توجه: فقط ایموجی معمولی مجاز است."
+        )
+    else:
+        hint = "متن جدید دکمه را ارسال کنید:"
+    await safe_edit_or_send(
+        callback,
+        f"🔘 دکمه «{key}» — {BUTTON_ATTRS[attr]}\n\n{hint}",
         reply_markup=back_to_admin(),
     )
 
@@ -327,14 +360,119 @@ async def custom_button_value(
         return
     value = (message.text or "").strip()
     if not value:
-        await message.answer("لطفاً یک عنوان ارسال کنید.")
+        await message.answer("لطفاً یک مقدار ارسال کنید.")
         return
     data = await state.get_data()
     key = data.get("button_key")
+    attr = data.get("button_attr")
     await state.clear()
-    await settings_service.set_custom_value(f"button:{key}", value)
+    if key is None or attr not in BUTTON_ATTRS:
+        await safe_edit_or_send(
+            message, "عملیات نامعتبر بود.", reply_markup=admin_panel()
+        )
+        return
+
+    # "حذف" clears an optional thematic emoji back to none.
+    if attr == "emoji" and value in {"حذف", "-"}:
+        value = ""
+
+    await settings_service.set_button_setting(
+        button_key=key,
+        button_text=value if attr == "text" else None,
+        button_emoji=value if attr == "emoji" else None,
+        button_color=value if attr == "color" else None,
+    )
+    overrides = await settings_service.get_all_button_settings()
     await safe_edit_or_send(
-        message, "✅ عنوان دکمه ذخیره شد.", reply_markup=admin_panel()
+        message,
+        f"✅ «{BUTTON_ATTRS[attr]}» دکمه «{key}» ذخیره شد.\n\n"
+        "برای ویرایش دکمه دیگر یکی را انتخاب کنید:",
+        reply_markup=button_picker(overrides),
+    )
+
+
+# ----------------------------- Report icons (premium emoji) -----------------------------
+@router.callback_query(F.data == CB.ADM_REPORT_EMOJI)
+async def report_emoji_start(
+    callback: CallbackQuery, db_user: User, state: FSMContext
+) -> None:
+    if not _is_owner(db_user):
+        await callback.answer("دسترسی مدیریت ندارید.", show_alert=True)
+        return
+    await state.clear()
+    await safe_edit_or_send(
+        callback,
+        "🎨 کدام آیکن گزارش را می‌خواهید با ایموجی پریمیوم تنظیم کنید؟",
+        reply_markup=report_icon_picker(),
+    )
+
+
+@router.callback_query(F.data.startswith(CB.REPORT_ICON_PICK))
+async def report_emoji_pick(
+    callback: CallbackQuery, db_user: User, state: FSMContext
+) -> None:
+    if not _is_owner(db_user):
+        await callback.answer("دسترسی مدیریت ندارید.", show_alert=True)
+        return
+    slot = callback.data[len(CB.REPORT_ICON_PICK):]
+    if slot not in REPORT_ICON_SPECS:
+        await callback.answer()
+        return
+    await state.update_data(report_slot=slot)
+    await state.set_state(AdminFlow.waiting_report_emoji_value)
+    label = REPORT_ICON_SPECS[slot][1]
+    await safe_edit_or_send(
+        callback,
+        f"🎨 آیکن «{label}»\n\n"
+        "یک ایموجی پریمیوم (Custom Emoji) ارسال کنید تا جایگزین آیکن این بخش "
+        "در گزارش‌ها شود. ربات شناسهٔ آن را خودکار استخراج می‌کند.\n\n"
+        "برای بازگشت به ایموجی پیش‌فرض، «پیش‌فرض» را ارسال کنید.",
+        reply_markup=back_to_admin(),
+    )
+
+
+@router.message(AdminFlow.waiting_report_emoji_value)
+async def report_emoji_value(
+    message: Message, db_user: User, state: FSMContext, bot: Bot
+) -> None:
+    if not _is_owner(db_user):
+        return
+    data = await state.get_data()
+    slot = data.get("report_slot")
+    if slot not in REPORT_ICON_SPECS:
+        await state.clear()
+        await safe_edit_or_send(
+            message, "عملیات نامعتبر بود.", reply_markup=admin_panel()
+        )
+        return
+
+    text = (message.text or "").strip()
+    if text in {"پیش‌فرض", "پیشفرض", "حذف", "-"}:
+        await state.clear()
+        await settings_service.set_report_emoji(slot, None)
+        await safe_edit_or_send(
+            message,
+            "✅ آیکن به حالت پیش‌فرض بازگشت.",
+            reply_markup=report_icon_picker(),
+        )
+        return
+
+    raw_entities = message.entities or message.caption_entities or []
+    ids = custom_emoji_ids(entities_to_dicts(raw_entities))
+    if not ids:
+        await message.answer(
+            "ایموجی پریمیوم پیدا نشد. یک Custom Emoji ارسال کنید یا «پیش‌فرض» بزنید."
+        )
+        return
+
+    await state.clear()
+    valid = await _is_valid_custom_emoji(bot, ids[0])
+    await settings_service.set_report_emoji(slot, ids[0])
+    note = "" if valid else "\n\n(توجه: این شناسه در دسترس نبود و در صورت خطا به ایموجی معمولی برمی‌گردد)"
+    await safe_edit_or_send(
+        message,
+        f"✅ آیکن «{REPORT_ICON_SPECS[slot][1]}» تنظیم شد." + note,
+        reply_markup=report_icon_picker(),
     )
 
 

@@ -32,6 +32,27 @@ async def on_start_shift(callback: CallbackQuery, db_user: User) -> None:
     )
 
 
+@router.callback_query(F.data == CB.STATUS)
+async def on_status(callback: CallbackQuery, db_user: User) -> None:
+    if not db_user.is_allowed:
+        await callback.answer(NO_ACCESS, show_alert=True)
+        return
+
+    status = await shifts_service.get_status(db_user.id)
+    if not status.active:
+        text = "🔴 وضعیت فعلی\n\nشما در حال پاسخگویی نیستید."
+    else:
+        text = (
+            "🟢 وضعیت فعلی\n\n"
+            "شما در حال پاسخگویی هستید.\n\n"
+            f"🕒 زمان شروع:\n{status.start_time}\n\n"
+            f"⏳ مدت پاسخگویی تاکنون:\n{status.elapsed_minutes} دقیقه"
+        )
+    await safe_edit_or_send(
+        callback, text, reply_markup=await menu_markup(db_user)
+    )
+
+
 @router.callback_query(F.data == CB.END_SHIFT)
 async def on_end_shift(callback: CallbackQuery, db_user: User) -> None:
     if not db_user.is_allowed:

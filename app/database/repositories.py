@@ -10,6 +10,7 @@ from app.database.models import (
     SHIFT_CLOSED,
     ActionLog,
     AdminState,
+    ButtonSetting,
     ReportTarget,
     Setting,
     Shift,
@@ -82,6 +83,16 @@ async def get_active_shift_for_update(
     return result.scalar_one_or_none()
 
 
+async def get_active_shift(session: AsyncSession, user_id: int) -> Shift | None:
+    """Read-only fetch of the user's active shift (no row lock)."""
+    result = await session.execute(
+        select(Shift).where(
+            Shift.user_id == user_id, Shift.status == SHIFT_ACTIVE
+        )
+    )
+    return result.scalar_one_or_none()
+
+
 async def create_shift(
     session: AsyncSession, user_id: int, start_time: datetime
 ) -> Shift:
@@ -148,6 +159,10 @@ async def get_all_settings(session: AsyncSession) -> dict[str, str]:
     return {s.key: s.value for s in result.scalars().all()}
 
 
+async def delete_setting(session: AsyncSession, key: str) -> None:
+    await session.execute(delete(Setting).where(Setting.key == key))
+
+
 # ----------------------------- TextSettings -----------------------------
 async def get_text_setting(
     session: AsyncSession, text_key: str
@@ -185,6 +200,44 @@ async def upsert_text_setting(
 async def get_all_text_settings(session: AsyncSession) -> dict[str, TextSetting]:
     result = await session.execute(select(TextSetting))
     return {s.text_key: s for s in result.scalars().all()}
+
+
+# ----------------------------- ButtonSettings -----------------------------
+async def get_all_button_settings(
+    session: AsyncSession,
+) -> dict[str, ButtonSetting]:
+    result = await session.execute(select(ButtonSetting))
+    return {b.button_key: b for b in result.scalars().all()}
+
+
+async def upsert_button_setting(
+    session: AsyncSession,
+    button_key: str,
+    button_text: str | None,
+    button_emoji: str | None,
+    button_color: str | None,
+) -> ButtonSetting:
+    result = await session.execute(
+        select(ButtonSetting).where(ButtonSetting.button_key == button_key)
+    )
+    setting = result.scalar_one_or_none()
+    if setting is None:
+        setting = ButtonSetting(
+            button_key=button_key,
+            button_text=button_text,
+            button_emoji=button_emoji,
+            button_color=button_color,
+        )
+        session.add(setting)
+    else:
+        if button_text is not None:
+            setting.button_text = button_text
+        if button_emoji is not None:
+            setting.button_emoji = button_emoji
+        if button_color is not None:
+            setting.button_color = button_color
+    await session.flush()
+    return setting
 
 
 # ----------------------------- ReportTarget -----------------------------

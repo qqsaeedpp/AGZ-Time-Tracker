@@ -142,6 +142,26 @@ class ActionLog(Base):
     )
 
 
+class ButtonSetting(Base):
+    """Owner-customizable inline-button appearance.
+
+    A button caption is composed as ``{color} {emoji} {text}``. Inline-keyboard
+    text does NOT support premium emoji, so ``color`` and ``emoji`` are normal
+    unicode emoji only. Any column left NULL falls back to the built-in default.
+    """
+
+    __tablename__ = "button_settings"
+    __table_args__ = _MYSQL_TABLE
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    button_key: Mapped[str] = mapped_column(
+        String(32), unique=True, index=True, nullable=False
+    )
+    button_text: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    button_emoji: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    button_color: Mapped[str | None] = mapped_column(String(16), nullable=True)
+
+
 class TextSetting(Base):
     """Owner-customizable message text plus optional premium (custom) emoji.
 

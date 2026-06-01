@@ -141,6 +141,24 @@ SPECS: dict[str, TextSpec] = {
 }
 
 
+# Report icons that an owner may override with a premium emoji. Each entry is
+# (default normal emoji, Persian label shown in the admin picker). The custom
+# id, when set, is stored in the key/value settings table as ``remoji:<slot>``.
+REPORT_ICON_SPECS: dict[str, tuple[str, str]] = {
+    "report": ("📊", "گزارش"),
+    "date": ("📅", "تاریخ"),
+    "online": ("🟢", "آنلاین"),
+    "offline": ("🔴", "آفلاین"),
+    "clock": ("⏰", "ساعت / مجموع کاربر"),
+    "intervals": ("📌", "بازه‌های فعالیت"),
+    "user": ("👤", "کاربر"),
+    "team": ("📈", "مجموع تیم"),
+    "users": ("👥", "تعداد کاربران"),
+}
+
+REPORT_EMOJI_PREFIX = "remoji:"
+
+
 def parse_formatting(raw: str | None, default: dict) -> dict:
     """Decode a stored ``formatting_config`` JSON blob, falling back safely."""
     if not raw:
@@ -213,6 +231,23 @@ class Rendered:
 
     text: str
     entities: list | None = None
+
+
+@dataclass(frozen=True)
+class EmojiIcon:
+    """An icon used inside reports: a normal unicode ``char`` plus an optional
+    premium ``custom_emoji_id`` override. Renders as a custom emoji when set,
+    otherwise falls back to the normal emoji."""
+
+    char: str
+    custom_emoji_id: str | None = None
+
+
+def icon_node(icon: EmojiIcon):
+    """Return an aiogram formatting node for an :class:`EmojiIcon`."""
+    if icon.custom_emoji_id:
+        return CustomEmoji(icon.char, custom_emoji_id=icon.custom_emoji_id)
+    return icon.char
 
 
 def normalize(content: "str | Text | Rendered") -> tuple[str, list | None]:
