@@ -11,7 +11,10 @@ from app.config import settings
 engine = create_async_engine(
     settings.database_url,
     echo=False,
-    pool_pre_ping=True,
+    # Recycle connections before MySQL's idle timeout (default 8h) drops them.
+    # We avoid pool_pre_ping because the aiomysql adapter's ping() signature is
+    # incompatible with SQLAlchemy's pre-ping call.
+    pool_recycle=3600,
 )
 
 session_factory = async_sessionmaker(
