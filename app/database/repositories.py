@@ -214,9 +214,11 @@ async def upsert_button_setting(
     session: AsyncSession,
     button_key: str,
     button_text: str | None,
-    button_emoji: str | None,
-    button_color: str | None,
+    button_style: str | None,
+    button_custom_emoji_id: str | None,
 ) -> ButtonSetting:
+    """Update only the provided (non-None) attributes of a button. Pass an empty
+    string to explicitly clear ``button_custom_emoji_id``."""
     result = await session.execute(
         select(ButtonSetting).where(ButtonSetting.button_key == button_key)
     )
@@ -225,17 +227,18 @@ async def upsert_button_setting(
         setting = ButtonSetting(
             button_key=button_key,
             button_text=button_text,
-            button_emoji=button_emoji,
-            button_color=button_color,
+            button_style=button_style,
+            button_custom_emoji_id=button_custom_emoji_id or None,
         )
         session.add(setting)
     else:
         if button_text is not None:
             setting.button_text = button_text
-        if button_emoji is not None:
-            setting.button_emoji = button_emoji
-        if button_color is not None:
-            setting.button_color = button_color
+        if button_style is not None:
+            setting.button_style = button_style
+        if button_custom_emoji_id is not None:
+            # Empty string clears the custom emoji back to none.
+            setting.button_custom_emoji_id = button_custom_emoji_id or None
     await session.flush()
     return setting
 

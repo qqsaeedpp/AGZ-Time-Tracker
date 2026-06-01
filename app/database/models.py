@@ -143,11 +143,17 @@ class ActionLog(Base):
 
 
 class ButtonSetting(Base):
-    """Owner-customizable inline-button appearance.
+    """Owner-customizable inline-button appearance using the official Bot API
+    button styling (Bot API 9.4+):
 
-    A button caption is composed as ``{color} {emoji} {text}``. Inline-keyboard
-    text does NOT support premium emoji, so ``color`` and ``emoji`` are normal
-    unicode emoji only. Any column left NULL falls back to the built-in default.
+    - ``button_text`` overrides the caption text.
+    - ``button_style`` is the native colour: ``primary`` (blue), ``success``
+      (green) or ``danger`` (red). NULL falls back to the built-in default.
+    - ``button_custom_emoji_id`` is a premium (custom) emoji shown before the
+      text via ``InlineKeyboardButton.icon_custom_emoji_id`` (requires the bot
+      owner's Telegram Premium). NULL means no custom emoji.
+
+    Any column left NULL falls back to the built-in default for that button.
     """
 
     __tablename__ = "button_settings"
@@ -158,8 +164,16 @@ class ButtonSetting(Base):
         String(32), unique=True, index=True, nullable=False
     )
     button_text: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    button_emoji: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    button_color: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    button_style: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    button_custom_emoji_id: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        server_default=_NOW,
+        server_onupdate=_NOW,
+        nullable=False,
+    )
 
 
 class TextSetting(Base):

@@ -7,7 +7,7 @@ from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 from aiogram.utils.formatting import Text
 
-from app.bot.keyboards import CB, main_menu
+from app.bot.keyboards import CB, main_menu, sanitize_markup
 from app.database.models import User
 from app.services import settings_service
 from app.utils.datetime_utils import now_tehran
@@ -69,14 +69,17 @@ async def _send(
     entities: list | None,
     reply_markup: InlineKeyboardMarkup | None,
 ) -> None:
-    """Send a fresh message; if the entities are rejected (e.g. an unavailable
-    premium emoji) retry once as plain text so delivery never fails."""
+    """Send a fresh message; if the entities or a premium emoji on a button are
+    rejected, retry once as plain text with button icons stripped so delivery
+    never fails."""
     try:
         await message.answer(
             text, entities=entities, reply_markup=reply_markup, parse_mode=None
         )
     except TelegramBadRequest:
-        await message.answer(text, reply_markup=reply_markup, parse_mode=None)
+        await message.answer(
+            text, reply_markup=sanitize_markup(reply_markup), parse_mode=None
+        )
 
 
 async def _replace(

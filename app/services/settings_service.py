@@ -29,8 +29,8 @@ class TextSettingData:
 class ButtonSettingData:
     button_key: str
     button_text: str | None
-    button_emoji: str | None
-    button_color: str | None
+    button_style: str | None
+    button_custom_emoji_id: str | None
 
 
 # --------------------------- Report target ---------------------------
@@ -145,8 +145,8 @@ async def get_all_button_settings() -> dict[str, ButtonSettingData]:
             k: ButtonSettingData(
                 button_key=v.button_key,
                 button_text=v.button_text,
-                button_emoji=v.button_emoji,
-                button_color=v.button_color,
+                button_style=v.button_style,
+                button_custom_emoji_id=v.button_custom_emoji_id,
             )
             for k, v in settings.items()
         }
@@ -154,14 +154,18 @@ async def get_all_button_settings() -> dict[str, ButtonSettingData]:
 
 async def set_button_setting(
     button_key: str,
-    button_text: str | None,
-    button_emoji: str | None,
-    button_color: str | None,
+    button_text: str | None = None,
+    button_style: str | None = None,
+    button_custom_emoji_id: str | None = None,
 ) -> None:
     async with session_factory() as session:
         async with session.begin():
             await repo.upsert_button_setting(
-                session, button_key, button_text, button_emoji, button_color
+                session,
+                button_key,
+                button_text,
+                button_style,
+                button_custom_emoji_id,
             )
 
 

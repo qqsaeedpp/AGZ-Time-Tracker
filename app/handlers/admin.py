@@ -10,10 +10,13 @@ from aiogram.types import CallbackQuery, Message
 from app.bot.keyboards import (
     BUTTON_ATTRS,
     CB,
+    STYLE_LABELS,
+    VALID_STYLES,
     admin_panel,
     back_to_admin,
     button_attr_picker,
     button_picker,
+    button_style_picker,
     report_icon_picker,
     wipe_confirm_step_1,
     wipe_confirm_step_2,
@@ -286,7 +289,7 @@ async def custom_text_value(
     )
 
 
-# ----------------------------- Custom buttons (text/emoji/color) -----------------------------
+# ----------------------------- Custom buttons (text / style / premium emoji) -----------------------------
 @router.callback_query(F.data == CB.ADM_CUSTOM_BUTTON)
 async def custom_button_start(
     callback: CallbackQuery, db_user: User, state: FSMContext
@@ -298,7 +301,8 @@ async def custom_button_start(
     overrides = await settings_service.get_all_button_settings()
     await safe_edit_or_send(
         callback,
-        "🔘 کدام دکمه را می‌خواهید شخصی‌سازی کنید؟",
+        "🔘 کدام دکمه را می‌خواهید شخصی‌سازی کنید؟\n\n"
+        "(رنگ هر دکمه در همین فهرست به‌صورت واقعی نمایش داده می‌شود)",
         reply_markup=button_picker(overrides),
     )
 
@@ -314,7 +318,10 @@ async def custom_button_pick(
     await state.clear()
     await safe_edit_or_send(
         callback,
-        f"🔘 دکمه «{key}»\n\nکدام بخش را تغییر می‌دهید؟",
+        f"🔘 دکمه «{key}»\n\nکدام بخش را تغییر می‌دهید؟\n"
+        "• متن: عنوان دکمه\n"
+        "• رنگ: آبی / سبز / قرمز (استایل رسمی تلگرام)\n"
+        "• ایموجی پریمیوم: نمایش یک Custom Emoji کنار متن",
         reply_markup=button_attr_picker(key),
     )
 
@@ -331,19 +338,27 @@ async def custom_button_attr(
     if attr not in BUTTON_ATTRS:
         await callback.answer()
         return
+
+    # Style is picked from an inline keyboard (no text input needed).
+    if attr == "style":
+        await state.clear()
+        await safe_edit_or_send(
+            callback,
+            f"🎨 رنگ دکمه «{key}» را انتخاب کنید:",
+            reply_markup=button_style_picker(key),
+        )
+        return
+
     await state.update_data(button_key=key, button_attr=attr)
     await state.set_state(AdminFlow.waiting_custom_button_value)
-    if attr == "color":
+    if attr == "emoji":
         hint = (
-            "یک ایموجی رنگی به‌عنوان رنگ دکمه ارسال کنید (مثلاً 🔵 🟢 🔴 🟡).\n\n"
-            "توجه: فقط ایموجی معمولی مجاز است (ایموجی پریمیوم در دکمه‌ها کار نمی‌کند)."
+            "یک ایموجی پریمیوم (Custom Emoji) ارسال کنید تا کنار متن دکمه نمایش "
+            "داده شود؛ ربات شناسهٔ آن را خودکار استخراج می‌کند.\n\n"
+            "برای برداشتن ایموجی، «حذف» را ارسال کنید.\n"
+            "توجه: نمایش ایموجی پریمیوم روی دکمه‌ها نیازمند Premium مالک ربات است."
         )
-    elif attr == "emoji":
-        hint = (
-            "ایموجی موضوعی دکمه را ارسال کنید (یا «حذف» برای برداشتن آن).\n\n"
-            "توجه: فقط ایموجی معمولی مجاز است."
-        )
-    else:
+    else:  # text
         hint = "متن جدید دکمه را ارسال کنید:"
     await safe_edit_or_send(
         callback,
@@ -352,41 +367,82 @@ async def custom_button_attr(
     )
 
 
-@router.message(AdminFlow.waiting_custom_button_value)
-async def custom_button_value(
-    message: Message, db_user: User, state: FSMContext
+@router.callback_query(F.data.startswith(CB.BTN_STYLE))
+async def custom_button_style(
+    callback: CallbackQuery, db_user: User, state: FSMContext
 ) -> None:
     if not _is_owner(db_user):
+        await callback.answer("دسترسی مدیریت ندارید.", show_alert=True)
         return
-    value = (message.text or "").strip()
-    if not value:
-        await message.answer("لطفاً یک مقدار ارسال کنید.")
+    payload = callback.data[len(CB.BTN_STYLE):]
+    key, _, style = payload.partition(":")
+    if style not in VALID_STYLES:
+        await callback.answer()
+        return
+    await state.clear()
+    await settings_service.set_button_setting(button_key=key, button_style=style)
+    overrides = await settings_service.get_all_button_settings()
+    await safe_edit_or_send(
+        callback,
+        f"✅ رنگ دکمه «{key}» به «{STYLE_LABELS[style]}» تغییر کرد.\n\n"
+        "دکمهٔ دیگری برای ویرایش انتخاب کنید:",
+        reply_markup=button_picker(overrides),
+    )
+
+
+@router.message(AdminFlow.waiting_custom_button_value)
+async def custom_button_value(
+    message: Message, db_user: User, state: FSMContext, bot: Bot
+) -> None:
+    if not _is_owner(db_user):
         return
     data = await state.get_data()
     key = data.get("button_key")
     attr = data.get("button_attr")
-    await state.clear()
-    if key is None or attr not in BUTTON_ATTRS:
+    if key is None or attr not in {"text", "emoji"}:
+        await state.clear()
         await safe_edit_or_send(
             message, "عملیات نامعتبر بود.", reply_markup=admin_panel()
         )
         return
 
-    # "حذف" clears an optional thematic emoji back to none.
-    if attr == "emoji" and value in {"حذف", "-"}:
-        value = ""
+    if attr == "text":
+        value = (message.text or "").strip()
+        if not value:
+            await message.answer("لطفاً یک عنوان ارسال کنید.")
+            return
+        await state.clear()
+        await settings_service.set_button_setting(button_key=key, button_text=value)
+        note = "متن دکمه ذخیره شد"
+    else:  # premium emoji
+        text = (message.text or "").strip()
+        if text in {"حذف", "-"}:
+            await state.clear()
+            await settings_service.set_button_setting(
+                button_key=key, button_custom_emoji_id=""
+            )
+            note = "ایموجی پریمیوم دکمه برداشته شد"
+        else:
+            raw_entities = message.entities or message.caption_entities or []
+            ids = custom_emoji_ids(entities_to_dicts(raw_entities))
+            if not ids:
+                await message.answer(
+                    "ایموجی پریمیوم پیدا نشد. یک Custom Emoji ارسال کنید یا «حذف» بزنید."
+                )
+                return
+            await state.clear()
+            valid = await _is_valid_custom_emoji(bot, ids[0])
+            await settings_service.set_button_setting(
+                button_key=key, button_custom_emoji_id=ids[0]
+            )
+            note = "ایموجی پریمیوم دکمه ذخیره شد"
+            if not valid:
+                note += " (شناسه در دسترس نبود؛ در صورت خطا روی دکمه نمایش داده نمی‌شود)"
 
-    await settings_service.set_button_setting(
-        button_key=key,
-        button_text=value if attr == "text" else None,
-        button_emoji=value if attr == "emoji" else None,
-        button_color=value if attr == "color" else None,
-    )
     overrides = await settings_service.get_all_button_settings()
     await safe_edit_or_send(
         message,
-        f"✅ «{BUTTON_ATTRS[attr]}» دکمه «{key}» ذخیره شد.\n\n"
-        "برای ویرایش دکمه دیگر یکی را انتخاب کنید:",
+        f"✅ {note}.\n\nدکمهٔ دیگری برای ویرایش انتخاب کنید:",
         reply_markup=button_picker(overrides),
     )
 

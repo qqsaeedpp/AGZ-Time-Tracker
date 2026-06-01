@@ -34,58 +34,81 @@ class CB:
     WIPE_CONFIRM_2 = "wipe_confirm_2"
     WIPE_CANCEL = "wipe_cancel"
 
-    # Prefixed callbacks (the suffix carries a button key / attribute / slot).
+    # Prefixed callbacks (the suffix carries a button key / attribute / value).
     BTN_PICK = "bpk:"  # bpk:<button_key>
-    BTN_ATTR = "bat:"  # bat:<button_key>:<attr>  (attr in text|emoji|color)
+    BTN_ATTR = "bat:"  # bat:<button_key>:<attr>  (attr in text|style|emoji)
+    BTN_STYLE = "bst:"  # bst:<button_key>:<style>  (style in primary|success|danger)
     REPORT_ICON_PICK = "ric:"  # ric:<slot>
 
 
-# Persian labels for the three editable button attributes.
+# Official Bot API button colours (Bot API 9.4+). NOTE: the API also accepts an
+# omitted style (app default); we always set one of these three.
+STYLE_PRIMARY = "primary"  # blue
+STYLE_SUCCESS = "success"  # green
+STYLE_DANGER = "danger"  # red
+VALID_STYLES = (STYLE_PRIMARY, STYLE_SUCCESS, STYLE_DANGER)
+
+# Persian display names for each style (shown in the admin picker).
+STYLE_LABELS: dict[str, str] = {
+    STYLE_PRIMARY: "آبی",
+    STYLE_SUCCESS: "سبز",
+    STYLE_DANGER: "قرمز",
+}
+
+# Editable button attributes shown in the customization picker.
 BUTTON_ATTRS: dict[str, str] = {
     "text": "متن",
-    "emoji": "ایموجی",
-    "color": "رنگ (ایموجی رنگی)",
+    "style": "رنگ",
+    "emoji": "ایموجی پریمیوم",
 }
 
 
-# Default appearance per button: (color emoji, thematic emoji, text).
-# NOTE: inline-keyboard text does NOT support premium emoji — only plain unicode
-# emoji are used here (premium emoji are documented as reports-only in README).
-# Colors follow the project spec: reports = blue, today = green, support = red.
-BUTTON_DEFAULTS: dict[str, tuple[str, str, str]] = {
-    CB.START_SHIFT: ("🟢", "", "شروع پاسخگویی"),
-    CB.END_SHIFT: ("🔴", "", "پایان پاسخگویی"),
-    CB.STATUS: ("🟡", "", "وضعیت"),
-    CB.DAILY_REPORT: ("🔵", "", "گزارش روزانه"),
-    CB.MONTHLY_REPORT: ("🔵", "", "گزارش ماهانه"),
-    CB.TODAY: ("🟢", "", "تاریخ امروز"),
-    CB.SUPPORT: ("🔴", "", "پشتیبانی ربات"),
-    CB.ADMIN_PANEL: ("⚙️", "", "پنل مدیریت"),
+# Default appearance per button: (style, text). Colours follow the spec:
+#   start = success(green), end = danger(red), status/reports = primary(blue),
+#   today = success(green), support = danger(red), admin = primary(blue).
+BUTTON_DEFAULTS: dict[str, tuple[str, str]] = {
+    CB.START_SHIFT: (STYLE_SUCCESS, "شروع پاسخگویی"),
+    CB.END_SHIFT: (STYLE_DANGER, "پایان پاسخگویی"),
+    CB.STATUS: (STYLE_PRIMARY, "وضعیت"),
+    CB.DAILY_REPORT: (STYLE_PRIMARY, "گزارش روزانه"),
+    CB.MONTHLY_REPORT: (STYLE_PRIMARY, "گزارش ماهانه"),
+    CB.TODAY: (STYLE_SUCCESS, "تاریخ امروز"),
+    CB.SUPPORT: (STYLE_DANGER, "پشتیبانی ربات"),
+    CB.ADMIN_PANEL: (STYLE_PRIMARY, "پنل مدیریت"),
 }
 
 # Buttons exposed in the "customize buttons" admin picker.
 CUSTOMIZABLE_BUTTONS = list(BUTTON_DEFAULTS.keys())
 
 
-def _caption(
+def _resolve(
     key: str, overrides: "dict[str, ButtonSettingData] | None"
-) -> str:
-    """Compose a button caption as ``color emoji text``, applying owner
-    overrides on top of the defaults."""
-    color, emoji, text = BUTTON_DEFAULTS[key]
+) -> tuple[str, str, str | None]:
+    """Return ``(style, text, custom_emoji_id)`` for a button, applying owner
+    overrides on top of the built-in defaults."""
+    style, text = BUTTON_DEFAULTS[key]
+    custom_emoji_id: str | None = None
     override = overrides.get(key) if overrides else None
     if override is not None:
-        if override.button_color:
-            color = override.button_color
-        if override.button_emoji is not None:
-            emoji = override.button_emoji
+        if override.button_style in VALID_STYLES:
+            style = override.button_style
         if override.button_text:
             text = override.button_text
-    return " ".join(part for part in (color, emoji, text) if part)
+        if override.button_custom_emoji_id:
+            custom_emoji_id = override.button_custom_emoji_id
+    return style, text, custom_emoji_id
 
 
 def _btn(key: str, overrides) -> InlineKeyboardButton:
-    return InlineKeyboardButton(text=_caption(key, overrides), callback_data=key)
+    """Build a main-menu button using the official ``style`` colour and an
+    optional premium ``icon_custom_emoji_id``."""
+    style, text, custom_emoji_id = _resolve(key, overrides)
+    return InlineKeyboardButton(
+        text=text,
+        callback_data=key,
+        style=style,
+        icon_custom_emoji_id=custom_emoji_id,
+    )
 
 
 def main_menu(
@@ -169,18 +192,29 @@ def back_to_admin() -> InlineKeyboardMarkup:
 def button_picker(
     overrides: "dict[str, ButtonSettingData] | None" = None,
 ) -> InlineKeyboardMarkup:
-    """List every customizable button (showing its current caption) so the owner
-    can choose which one to edit."""
-    rows = [
-        [InlineKeyboardButton(text=_caption(key, overrides), callback_data=f"{CB.BTN_PICK}{key}")]
-        for key in CUSTOMIZABLE_BUTTONS
-    ]
+    """List every customizable button so the owner can choose which to edit.
+
+    Each picker row is rendered with the button's *own* current style and
+    premium emoji, so the owner sees a live preview of its real colour."""
+    rows = []
+    for key in CUSTOMIZABLE_BUTTONS:
+        style, text, custom_emoji_id = _resolve(key, overrides)
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=text,
+                    callback_data=f"{CB.BTN_PICK}{key}",
+                    style=style,
+                    icon_custom_emoji_id=custom_emoji_id,
+                )
+            ]
+        )
     rows.append([InlineKeyboardButton(text="↩️ بازگشت", callback_data=CB.ADM_BACK)])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def button_attr_picker(button_key: str) -> InlineKeyboardMarkup:
-    """Offer the three editable attributes (text/emoji/color) for one button."""
+    """Offer the editable attributes (text / style / premium emoji)."""
     rows = [
         [
             InlineKeyboardButton(
@@ -192,6 +226,56 @@ def button_attr_picker(button_key: str) -> InlineKeyboardMarkup:
     rows.append(
         [InlineKeyboardButton(text="↩️ بازگشت", callback_data=CB.ADM_CUSTOM_BUTTON)]
     )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def button_style_picker(button_key: str) -> InlineKeyboardMarkup:
+    """Offer the three official colours, each rendered in its own style so the
+    owner previews the real colour before choosing."""
+    rows = [
+        [
+            InlineKeyboardButton(
+                text=STYLE_LABELS[style],
+                callback_data=f"{CB.BTN_STYLE}{button_key}:{style}",
+                style=style,
+            )
+        ]
+        for style in VALID_STYLES
+    ]
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="↩️ بازگشت", callback_data=f"{CB.BTN_PICK}{button_key}"
+            )
+        ]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def sanitize_markup(
+    markup: InlineKeyboardMarkup | None,
+) -> InlineKeyboardMarkup | None:
+    """Return a copy of *markup* with every ``icon_custom_emoji_id`` removed.
+
+    Used as a fallback when Telegram rejects a send/edit because a premium emoji
+    on a button is unavailable — the menu still renders (just without the custom
+    emoji) instead of failing entirely."""
+    if markup is None:
+        return None
+    has_icon = any(
+        getattr(btn, "icon_custom_emoji_id", None)
+        for row in markup.inline_keyboard
+        for btn in row
+    )
+    if not has_icon:
+        return markup
+    rows = [
+        [
+            btn.model_copy(update={"icon_custom_emoji_id": None})
+            for btn in row
+        ]
+        for row in markup.inline_keyboard
+    ]
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
