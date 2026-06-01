@@ -13,13 +13,15 @@ def now_tehran() -> datetime:
 
 
 def to_tehran(dt: datetime) -> datetime:
+    # Naive values come from MySQL DATETIME columns and already represent
+    # Tehran wall-clock time, so attach the Tehran zone rather than converting.
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=ZoneInfo("UTC"))
+        return dt.replace(tzinfo=TEHRAN_TZ)
     return dt.astimezone(TEHRAN_TZ)
 
 
 def duration_minutes(start: datetime, end: datetime) -> int:
-    delta = end - start
+    delta = to_tehran(end) - to_tehran(start)
     return max(0, int(delta.total_seconds() // 60))
 
 

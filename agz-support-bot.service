@@ -1,6 +1,6 @@
 [Unit]
 Description=AGZ Support Time Telegram Bot
-After=network.target postgresql.service
+After=network.target mysql.service
 
 [Service]
 Type=simple

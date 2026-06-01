@@ -5,15 +5,21 @@ from datetime import datetime
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    Computed,
     DateTime,
     ForeignKey,
     Index,
     Integer,
     String,
     Text,
-    func,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+# MySQL has no timezone-aware DATETIME; the whole app works in Tehran local
+# time and stores naive Tehran wall-clock values (see app.utils.datetime_utils).
+_NOW = text("CURRENT_TIMESTAMP")
+_MYSQL_TABLE = {"mysql_charset": "utf8mb4", "mysql_collate": "utf8mb4_unicode_ci"}
 
 
 class Base(DeclarativeBase):
@@ -26,6 +32,7 @@ SHIFT_CLOSED = "closed"
 
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = _MYSQL_TABLE
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     telegram_id: Mapped[int] = mapped_column(
@@ -36,7 +43,7 @@ class User(Base):
     is_allowed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_owner: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
+        DateTime, server_default=_NOW, nullable=False
     )
 
     shifts: Mapped[list["Shift"]] = relationship(back_populates="user")
@@ -49,35 +56,39 @@ class Shift(Base):
     user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
     )
-    start_time: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
-    end_time: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    start_time: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    end_time: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     duration_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(
         String(16), default=SHIFT_ACTIVE, nullable=False
     )
+    # Generated column that equals user_id only while the shift is active and is
+    # NULL otherwise. A UNIQUE index on it gives a database-level guarantee of
+    # at most one active shift per user (MySQL allows multiple NULLs), which is
+    # the MySQL equivalent of a partial unique index.
+    active_marker: Mapped[int | None] = mapped_column(
+        Integer,
+        Computed(
+            "(CASE WHEN status = 'active' THEN user_id ELSE NULL END)",
+            persisted=True,
+        ),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
+        DateTime, server_default=_NOW, nullable=False
     )
 
     user: Mapped["User"] = relationship(back_populates="shifts")
 
     __table_args__ = (
-        # Database-level guarantee: at most one active shift per user.
-        Index(
-            "uq_one_active_shift_per_user",
-            "user_id",
-            unique=True,
-            postgresql_where=(status == SHIFT_ACTIVE),
-        ),
+        Index("uq_one_active_shift_per_user", "active_marker", unique=True),
+        _MYSQL_TABLE,
     )
 
 
 class Setting(Base):
     __tablename__ = "settings"
+    __table_args__ = _MYSQL_TABLE
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     key: Mapped[str] = mapped_column(String(128), unique=True, index=True, nullable=False)
@@ -86,6 +97,7 @@ class Setting(Base):
 
 class ReportTarget(Base):
     __tablename__ = "report_targets"
+    __table_args__ = _MYSQL_TABLE
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     chat_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
@@ -93,12 +105,13 @@ class ReportTarget(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     installed_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
+        DateTime, server_default=_NOW, nullable=False
     )
 
 
 class AdminState(Base):
     __tablename__ = "admin_states"
+    __table_args__ = _MYSQL_TABLE
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(
@@ -107,19 +120,20 @@ class AdminState(Base):
     state: Mapped[str | None] = mapped_column(String(64), nullable=True)
     payload: Mapped[str | None] = mapped_column(Text, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        onupdate=func.now(),
+        DateTime,
+        server_default=_NOW,
+        server_onupdate=_NOW,
         nullable=False,
     )
 
 
 class ActionLog(Base):
     __tablename__ = "action_logs"
+    __table_args__ = _MYSQL_TABLE
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(BigInteger, index=True, nullable=False)
     action: Mapped[str] = mapped_column(String(64), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
+        DateTime, server_default=_NOW, nullable=False
     )
