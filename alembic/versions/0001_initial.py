@@ -52,7 +52,7 @@ def upgrade() -> None:
             nullable=True,
         ),
         sa.Column("created_at", sa.DateTime(), server_default=_NOW, nullable=False),
-        sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["user_id"], ["users.id"]),
         sa.PrimaryKeyConstraint("id"),
         **_TABLE_OPTS,
     )

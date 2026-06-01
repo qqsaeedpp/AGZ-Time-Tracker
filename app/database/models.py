@@ -53,8 +53,11 @@ class Shift(Base):
     __tablename__ = "shifts"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    # No ON DELETE CASCADE: MySQL forbids a cascading FK whose base column
+    # (user_id) feeds a STORED generated column (active_marker). Shifts are
+    # removed explicitly by the wipe operation, and users are not deleted.
     user_id: Mapped[int] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+        ForeignKey("users.id"), index=True, nullable=False
     )
     start_time: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     end_time: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
