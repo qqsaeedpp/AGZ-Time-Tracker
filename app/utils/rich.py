@@ -19,7 +19,24 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 
+from aiogram.types import MessageEntity
 from aiogram.utils.formatting import Bold, CustomEmoji, Italic, Text
+
+# Entity types we faithfully store and replay from an owner-supplied message so
+# that premium (custom) emoji and bold/italic land exactly where they were typed.
+REPLAYABLE_ENTITY_TYPES = {
+    "custom_emoji",
+    "bold",
+    "italic",
+    "underline",
+    "strikethrough",
+    "spoiler",
+    "code",
+    "pre",
+    "blockquote",
+    "text_link",
+    "text_mention",
+}
 
 
 @dataclass(frozen=True)
@@ -189,11 +206,128 @@ def compose(
     return Text(*nodes)
 
 
-def normalize(content: "str | Text") -> tuple[str, list | None]:
-    """Return ``(text, entities)`` for either a plain string or an aiogram
-    formatting node. Entities are returned without a parse_mode so callers can
+@dataclass
+class Rendered:
+    """A ready-to-send message: plain text plus explicit Telegram entities
+    (already in UTF-16 offsets), used to replay owner-typed premium emoji."""
+
+    text: str
+    entities: list | None = None
+
+
+def normalize(content: "str | Text | Rendered") -> tuple[str, list | None]:
+    """Return ``(text, entities)`` for a plain string, an aiogram formatting
+    node, or a :class:`Rendered`. Entities carry no parse_mode so callers can
     safely pass ``parse_mode=None``."""
+    if isinstance(content, Rendered):
+        return content.text, content.entities
     if isinstance(content, str):
         return content, None
     kwargs = content.as_kwargs()
     return kwargs["text"], (kwargs.get("entities") or None)
+
+
+# --------------------- Premium-emoji entity capture/replay ---------------------
+def _utf16_len(text: str) -> int:
+    """Length of ``text`` in UTF-16 code units (Telegram entity offset unit)."""
+    return len(text.encode("utf-16-le")) // 2
+
+
+def entities_to_dicts(entities) -> list[dict]:
+    """Serialize the entities of an owner-supplied message into plain dicts,
+    keeping only the formatting/custom-emoji entities we can replay. This is how
+    the bot automatically captures the numeric ``custom_emoji_id`` of any premium
+    emoji the owner typed inside their text."""
+    result: list[dict] = []
+    for entity in entities or []:
+        if entity.type not in REPLAYABLE_ENTITY_TYPES:
+            continue
+        data: dict = {
+            "type": entity.type,
+            "offset": entity.offset,
+            "length": entity.length,
+        }
+        if getattr(entity, "custom_emoji_id", None):
+            data["custom_emoji_id"] = entity.custom_emoji_id
+        if getattr(entity, "url", None):
+            data["url"] = entity.url
+        if getattr(entity, "language", None):
+            data["language"] = entity.language
+        result.append(data)
+    return result
+
+
+def dicts_to_entities(dicts) -> list[MessageEntity] | None:
+    if not dicts:
+        return None
+    return [
+        MessageEntity(
+            type=d["type"],
+            offset=d["offset"],
+            length=d["length"],
+            custom_emoji_id=d.get("custom_emoji_id"),
+            url=d.get("url"),
+            language=d.get("language"),
+        )
+        for d in dicts
+    ]
+
+
+def custom_emoji_ids(dicts) -> list[str]:
+    return [d["custom_emoji_id"] for d in dicts if d.get("custom_emoji_id")]
+
+
+def dump_entities(dicts) -> str:
+    return json.dumps({"entities": dicts}, ensure_ascii=False)
+
+
+def load_entities(raw: str | None) -> list[dict]:
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except (ValueError, TypeError):
+        return []
+    if isinstance(data, dict):
+        entities = data.get("entities")
+        return entities if isinstance(entities, list) else []
+    return []
+
+
+def apply_placeholders(
+    text: str, entity_dicts: list[dict], replacements: dict[str, object] | None
+) -> tuple[str, list[dict]]:
+    """Substitute ``{token}`` placeholders and shift entity offsets so premium
+    emoji and styling stay aligned after the (variable-length) substitution.
+
+    Assumes placeholders never sit inside an entity span, which holds for our
+    templates (placeholders are bare ``{minutes}``/``{jalali}`` tokens).
+    """
+    if not replacements:
+        return text, entity_dicts
+
+    # Record each occurrence as (utf16_start_in_original, delta_in_utf16).
+    occurrences: list[tuple[int, int]] = []
+    for token, value in replacements.items():
+        marker = "{" + token + "}"
+        delta = _utf16_len(str(value)) - _utf16_len(marker)
+        start = 0
+        while True:
+            idx = text.find(marker, start)
+            if idx == -1:
+                break
+            occurrences.append((_utf16_len(text[:idx]), delta))
+            start = idx + len(marker)
+
+    new_text = text
+    for token, value in replacements.items():
+        new_text = new_text.replace("{" + token + "}", str(value))
+
+    new_entities: list[dict] = []
+    for d in entity_dicts:
+        shift = sum(delta for pos, delta in occurrences if pos < d["offset"])
+        adjusted = dict(d)
+        adjusted["offset"] = d["offset"] + shift
+        new_entities.append(adjusted)
+
+    return new_text, new_entities

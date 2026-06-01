@@ -12,7 +12,16 @@ from app.database.models import User
 from app.services import settings_service
 from app.utils.datetime_utils import now_tehran
 from app.utils.jalali_utils import to_gregorian_date, to_jalali_date
-from app.utils.rich import SPECS, compose, normalize, parse_formatting, substitute
+from app.utils.rich import (
+    SPECS,
+    Rendered,
+    apply_placeholders,
+    compose,
+    dicts_to_entities,
+    load_entities,
+    normalize,
+    substitute,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -36,22 +45,22 @@ async def render(key: str, replacements: dict[str, object] | None = None) -> Tex
     spec = SPECS[key]
     setting = await settings_service.get_text_setting(key)
     if setting is not None and setting.text_value:
-        text_value = setting.text_value
-        custom_emoji_id = setting.custom_emoji_id
-        formatting = parse_formatting(
-            setting.formatting_config, spec.default_formatting
+        # Owner-customized: replay the exact text + entities they typed, so any
+        # premium emoji shows precisely where it was placed. Placeholder tokens
+        # are substituted with entity offsets shifted to stay aligned.
+        entity_dicts = load_entities(setting.formatting_config)
+        text, adjusted = apply_placeholders(
+            setting.text_value, entity_dicts, replacements
         )
-    else:
-        text_value = spec.default_text
-        custom_emoji_id = None
-        formatting = dict(spec.default_formatting)
+        return Rendered(text, dicts_to_entities(adjusted))
 
-    text_value = substitute(text_value, replacements)
+    # Default: built-in beautified message with a normal leading emoji.
+    text_value = substitute(spec.default_text, replacements)
     return compose(
         text_value,
         emoji_char=spec.emoji,
-        custom_emoji_id=custom_emoji_id,
-        formatting=formatting,
+        custom_emoji_id=None,
+        formatting=dict(spec.default_formatting),
     )
 
 

@@ -25,16 +25,18 @@ from app.handlers.common import (
     today_replacements,
 )
 from app.services import broadcast_service, settings_service, users_service
-from app.utils.rich import SPECS, dump_formatting
+from app.utils.rich import (
+    SPECS,
+    custom_emoji_ids,
+    dump_entities,
+    entities_to_dicts,
+)
 
 logger = logging.getLogger(__name__)
 
 router = Router(name="admin")
 
 GROUP_TYPES = {"group", "supergroup"}
-
-# Tokens the owner may send to skip attaching a premium emoji to a custom text.
-SKIP_TOKENS = {"-", "خیر", "نه", "رد", "بدون", "skip"}
 
 PANEL_TITLE = "⚙️ پنل مدیریت\n\nیکی از گزینه‌ها را انتخاب کنید:"
 
@@ -217,85 +219,65 @@ async def custom_text_key(
     await state.update_data(text_key=key)
     await state.set_state(AdminFlow.waiting_custom_text_value)
     await message.answer(
-        f"متن جدید برای «{SPECS[key].label}» را ارسال کنید:",
+        f"متن جدید برای «{SPECS[key].label}» را ارسال کنید.\n\n"
+        "می‌توانید ایموجی پریمیوم (Custom Emoji) را مستقیماً داخل همین متن "
+        "بنویسید؛ ربات به‌صورت خودکار آن را شناسایی و ذخیره می‌کند و دقیقاً "
+        "همان‌جا نمایش می‌دهد.",
         reply_markup=back_to_admin(),
     )
 
 
 @router.message(AdminFlow.waiting_custom_text_value)
 async def custom_text_value(
-    message: Message, db_user: User, state: FSMContext
-) -> None:
-    if not _is_owner(db_user):
-        return
-    value = message.text
-    if not value:
-        await message.answer("لطفاً یک متن ارسال کنید.")
-        return
-    await state.update_data(text_value=value)
-    await state.set_state(AdminFlow.waiting_custom_text_emoji)
-    await message.answer(
-        "حالا ایموجی پریمیوم (Custom Emoji) را به یکی از این روش‌ها ارسال کنید:\n\n"
-        "• خودِ ایموجی پریمیوم را بفرستید\n"
-        "• یا شناسهٔ عددی (custom_emoji_id) را ارسال کنید\n\n"
-        "اگر نمی‌خواهید ایموجی پریمیوم تنظیم شود، عبارت «-» را بفرستید "
-        "تا از ایموجی معمولی استفاده شود.",
-        reply_markup=back_to_admin(),
-    )
-
-
-@router.message(AdminFlow.waiting_custom_text_emoji)
-async def custom_text_emoji(
     message: Message, db_user: User, state: FSMContext, bot: Bot
 ) -> None:
     if not _is_owner(db_user):
         return
 
-    custom_emoji_id = _extract_custom_emoji_id(message)
-    text = (message.text or "").strip()
+    value = message.text or message.caption
+    if not value:
+        await message.answer("لطفاً یک متن ارسال کنید.")
+        return
 
-    if custom_emoji_id is None:
-        if text in SKIP_TOKENS:
-            custom_emoji_id = None  # fall back to the normal emoji
-        elif text.isdigit():
-            custom_emoji_id = text
-        else:
-            await message.answer(
-                "ورودی نامعتبر است. یک ایموجی پریمیوم، یک شناسهٔ عددی، "
-                "یا «-» برای رد کردن ارسال کنید.",
-                reply_markup=back_to_admin(),
-            )
-            return  # stay in this state
+    # Automatically capture every entity the owner used — including the numeric
+    # custom_emoji_id of any premium emoji typed inside the text — and store it
+    # so the message is replayed exactly (premium emoji rendered correctly).
+    raw_entities = message.entities or message.caption_entities or []
+    entity_dicts = entities_to_dicts(raw_entities)
+    ids = custom_emoji_ids(entity_dicts)
 
-    if custom_emoji_id is not None and not await _is_valid_custom_emoji(
-        bot, custom_emoji_id
-    ):
-        await message.answer(
-            "شناسهٔ ایموجی پریمیوم نامعتبر است یا در دسترس نیست. "
-            "دوباره ارسال کنید یا «-» را بفرستید.",
-            reply_markup=back_to_admin(),
-        )
-        return  # stay in this state
+    # Best-effort validation so the owner learns if the bot can't use an emoji.
+    invalid: list[str] = []
+    for cid in ids:
+        if not await _is_valid_custom_emoji(bot, cid):
+            invalid.append(cid)
 
     data = await state.get_data()
     key = data.get("text_key")
-    value = data.get("text_value")
     await state.clear()
 
-    formatting = dump_formatting(dict(SPECS[key].default_formatting))
-    await settings_service.set_text_setting(key, value, custom_emoji_id, formatting)
-
-    note = (
-        "با ایموجی پریمیوم" if custom_emoji_id else "با ایموجی معمولی"
+    await settings_service.set_text_setting(
+        key,
+        value,
+        ids[0] if ids else None,
+        dump_entities(entity_dicts),
     )
-    await message.answer(f"✅ متن «{SPECS[key].label}» ذخیره شد ({note}).")
+
+    if ids:
+        note = f"با {len(ids)} ایموجی پریمیوم"
+        if invalid:
+            note += " (برخی شناسه‌ها در دسترس نبودند و در صورت خطا به متن ساده برمی‌گردد)"
+    else:
+        note = "بدون ایموجی پریمیوم"
+    await message.answer(f"✅ متن «{SPECS[key].label}» ذخیره شد — {note}.")
+
     # Live preview of the saved text exactly as users will see it.
     preview = await render(key, _preview_replacements())
     await safe_edit_or_send(message, preview, reply_markup=admin_panel())
     logger.info(
-        "Custom text saved key=%s premium=%s by owner=%s",
+        "Custom text saved key=%s premium_count=%s by owner=%s",
         key,
-        bool(custom_emoji_id),
+        len(ids),
         db_user.telegram_id,
     )
 
@@ -449,15 +431,6 @@ def _parse_user_id(text: str | None) -> int | None:
         return None
     value = int(text)
     return value if value > 0 else None
-
-
-def _extract_custom_emoji_id(message: Message) -> str | None:
-    """Pull a custom_emoji_id out of a message's entities, if the owner sent an
-    actual premium emoji (requires Telegram Premium to send)."""
-    for entity in message.entities or []:
-        if entity.type == "custom_emoji" and entity.custom_emoji_id:
-            return entity.custom_emoji_id
-    return None
 
 
 async def _is_valid_custom_emoji(bot: Bot, custom_emoji_id: str) -> bool:
