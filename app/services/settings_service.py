@@ -44,10 +44,16 @@ async def install_report_target(
             )
 
 
-async def remove_report_target() -> None:
+async def remove_report_target(
+    chat_id: int, message_thread_id: int | None
+) -> bool:
+    """Deactivate the active target for this chat/topic. Returns ``True`` if a
+    matching active target existed and was removed."""
     async with session_factory() as session:
         async with session.begin():
-            await repo.deactivate_report_targets(session)
+            return await repo.deactivate_report_target_for(
+                session, chat_id, message_thread_id
+            )
 
 
 async def get_report_target() -> ReportTargetInfo | None:

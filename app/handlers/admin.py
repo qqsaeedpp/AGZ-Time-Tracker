@@ -590,20 +590,37 @@ async def wipe_cancel(
 
 
 # ----------------------------- Group report target -----------------------------
+def _target_thread_id(message: Message) -> int | None:
+    """Topic id only for genuine forum-topic messages.
+
+    Telegram also sets ``message_thread_id`` on plain replies in non-forum
+    groups, so we guard with ``is_topic_message`` to avoid storing a bogus
+    thread id (which would send the report into the wrong place)."""
+    return message.message_thread_id if message.is_topic_message else None
+
+
 @router.message(F.chat.type.in_(GROUP_TYPES), F.text == "نصب")
 async def install_report_target(message: Message, db_user: User) -> None:
     if not _is_owner(db_user):
         return
+    thread_id = _target_thread_id(message)
     await settings_service.install_report_target(
         chat_id=message.chat.id,
-        message_thread_id=message.message_thread_id,
+        message_thread_id=thread_id,
         installed_by=message.from_user.id,
     )
-    await message.answer("نصب گزارش در این مکان انجام شد. گزارش روزانه اینجا ارسال می‌شود.")
+    # aiogram's ``answer`` already replies inside the same topic when the
+    # source message is a topic message, so we don't pass the thread id again.
+    await message.answer(
+        "✅ مقصد گزارش روزانه ثبت شد.\n\n"
+        "از این پس گزارش روزانه هر شب ساعت ۲۳:۰۰ به وقت تهران در همین بخش "
+        "ارسال می‌شود."
+    )
     logger.info(
-        "Report target installed chat=%s thread=%s",
+        "Report target installed chat=%s thread=%s by owner=%s",
         message.chat.id,
-        message.message_thread_id,
+        thread_id,
+        message.from_user.id,
     )
 
 
@@ -611,9 +628,22 @@ async def install_report_target(message: Message, db_user: User) -> None:
 async def remove_report_target(message: Message, db_user: User) -> None:
     if not _is_owner(db_user):
         return
-    await settings_service.remove_report_target()
-    await message.answer("ارسال گزارش غیرفعال شد.")
-    logger.info("Report target removed by owner=%s", message.from_user.id)
+    thread_id = _target_thread_id(message)
+    removed = await settings_service.remove_report_target(
+        chat_id=message.chat.id, message_thread_id=thread_id
+    )
+    if removed:
+        await message.answer("🗑 ارسال گزارش روزانه برای این بخش غیرفعال شد.")
+        logger.info(
+            "Report target removed chat=%s thread=%s by owner=%s",
+            message.chat.id,
+            thread_id,
+            message.from_user.id,
+        )
+    else:
+        await message.answer(
+            "⚠️ برای این گروه یا تاپیک مقصد فعالی ثبت نشده است."
+        )
 
 
 # ----------------------------- Helpers -----------------------------

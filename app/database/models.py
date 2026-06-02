@@ -110,6 +110,14 @@ class ReportTarget(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=_NOW, nullable=False
     )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        server_default=_NOW,
+        server_onupdate=_NOW,
+        nullable=False,
+    )
+    # Set when a target is explicitly removed via the «حذف» command.
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class AdminState(Base):

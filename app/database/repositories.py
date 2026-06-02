@@ -285,16 +285,36 @@ async def upsert_report_target(
     else:
         target.is_active = True
         target.installed_by = installed_by
+        target.deleted_at = None
     await session.flush()
     return target
 
 
-async def deactivate_report_targets(session: AsyncSession) -> None:
-    await session.execute(
-        update(ReportTarget).values(is_active=False).where(
-            ReportTarget.is_active.is_(True)
+async def deactivate_report_target_for(
+    session: AsyncSession, chat_id: int, message_thread_id: int | None
+) -> bool:
+    """Deactivate the active target matching this chat (and topic, if any).
+
+    Returns ``True`` when a matching active target was found and removed,
+    ``False`` otherwise so the caller can report «no active target»."""
+    result = await session.execute(
+        select(ReportTarget).where(
+            ReportTarget.is_active.is_(True),
+            ReportTarget.chat_id == chat_id,
+            ReportTarget.message_thread_id.is_(None)
+            if message_thread_id is None
+            else ReportTarget.message_thread_id == message_thread_id,
         )
     )
+    targets = result.scalars().all()
+    if not targets:
+        return False
+    now = datetime.now()
+    for target in targets:
+        target.is_active = False
+        target.deleted_at = now
+    await session.flush()
+    return True
 
 
 # ----------------------------- AdminState -----------------------------
