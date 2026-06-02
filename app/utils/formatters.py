@@ -100,7 +100,13 @@ def format_daily_report(
             )
             lines.append([ico("intervals"), " ", "بازه‌های فعالیت:"])
             for idx, interval in enumerate(entry.intervals, start=1):
-                lines.append([f"{idx}. {interval.start} تا {interval.end}"])
+                suffix = " 🟢 فعال" if interval.active else ""
+                lines.append(
+                    [
+                        f"{idx}. {interval.start} تا {interval.end} "
+                        f"({interval.minutes} دقیقه){suffix}"
+                    ]
+                )
             lines.append([SEP])
 
     lines.append([ico("team"), " ", f"مجموع تیم: {report.team_total_minutes} دقیقه"])

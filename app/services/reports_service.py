@@ -8,8 +8,11 @@ from app.database.db import session_factory
 from app.database.models import User
 from app.utils.datetime_utils import (
     day_bounds_tehran,
+    duration_minutes,
     format_time_hm,
     month_bounds_tehran,
+    now_tehran,
+    to_tehran,
 )
 from app.utils.formatters import user_display
 from app.utils.jalali_utils import jalali_month_label, to_jalali_date
@@ -20,6 +23,8 @@ class Interval:
     start: str
     end: str
     minutes: int
+    # True for a still-open (active) shift; rendered as «... تا اکنون 🟢 فعال».
+    active: bool = False
 
 
 @dataclass
@@ -61,8 +66,24 @@ async def _users_by_id(session, user_ids: set[int]) -> dict[int, User]:
     return users
 
 
+def _clipped_active_minutes(
+    start_time: datetime, window_start: datetime, now: datetime
+) -> tuple[datetime, int]:
+    """Temporary (non-persisted) duration of a still-active shift, clamped to
+    the report window. If the shift began before ``window_start`` (e.g. it
+    started yesterday / last month), only the part inside the window counts.
+
+    Returns ``(effective_start, minutes)``; the shift is never closed and the
+    database is never touched."""
+    effective_start = (
+        start_time if to_tehran(start_time) >= window_start else window_start
+    )
+    return effective_start, duration_minutes(effective_start, now)
+
+
 async def build_daily_report(reference: datetime | None = None) -> DailyReport:
     start, end = day_bounds_tehran(reference)
+    now = now_tehran()
     async with session_factory() as session:
         shifts = await repo.get_closed_shifts_between(session, start, end)
         active = await repo.get_active_shifts(session)
@@ -71,15 +92,23 @@ async def build_daily_report(reference: datetime | None = None) -> DailyReport:
         users = await _users_by_id(session, user_ids)
 
     grouped: dict[int, UserDailyEntry] = {}
-    for shift in shifts:
-        user = users.get(shift.user_id)
-        display = user_display(
-            user.username if user else None, user.first_name if user else None
-        )
-        entry = grouped.get(shift.user_id)
+
+    def _entry(user_id: int) -> UserDailyEntry:
+        user = users.get(user_id)
+        entry = grouped.get(user_id)
         if entry is None:
-            entry = UserDailyEntry(display=display, total_minutes=0)
-            grouped[shift.user_id] = entry
+            entry = UserDailyEntry(
+                display=user_display(
+                    user.username if user else None,
+                    user.first_name if user else None,
+                ),
+                total_minutes=0,
+            )
+            grouped[user_id] = entry
+        return entry
+
+    for shift in shifts:
+        entry = _entry(shift.user_id)
         minutes = shift.duration_minutes or 0
         entry.total_minutes += minutes
         entry.intervals.append(
@@ -90,6 +119,8 @@ async def build_daily_report(reference: datetime | None = None) -> DailyReport:
             )
         )
 
+    # Active shifts contribute a temporary duration (today's portion only) and
+    # surface as an open «... تا اکنون 🟢 فعال» interval, without being closed.
     online_users: list[str] = []
     for shift in active:
         user = users.get(shift.user_id)
@@ -97,6 +128,19 @@ async def build_daily_report(reference: datetime | None = None) -> DailyReport:
             user_display(
                 user.username if user else None,
                 user.first_name if user else None,
+            )
+        )
+        effective_start, minutes = _clipped_active_minutes(
+            shift.start_time, start, now
+        )
+        entry = _entry(shift.user_id)
+        entry.total_minutes += minutes
+        entry.intervals.append(
+            Interval(
+                start=format_time_hm(effective_start),
+                end="اکنون",
+                minutes=minutes,
+                active=True,
             )
         )
 
@@ -114,9 +158,11 @@ async def build_daily_report(reference: datetime | None = None) -> DailyReport:
 
 async def build_monthly_report(reference: datetime | None = None) -> MonthlyReport:
     start, end = month_bounds_tehran(reference)
+    now = now_tehran()
     async with session_factory() as session:
         shifts = await repo.get_closed_shifts_between(session, start, end)
-        user_ids = {s.user_id for s in shifts}
+        active = await repo.get_active_shifts(session)
+        user_ids = {s.user_id for s in shifts} | {s.user_id for s in active}
         users = await _users_by_id(session, user_ids)
 
     totals: dict[int, int] = {}
@@ -124,6 +170,13 @@ async def build_monthly_report(reference: datetime | None = None) -> MonthlyRepo
         totals[shift.user_id] = totals.get(shift.user_id, 0) + (
             shift.duration_minutes or 0
         )
+
+    # Active shifts add this month's portion only, without being closed.
+    for shift in active:
+        _effective_start, minutes = _clipped_active_minutes(
+            shift.start_time, start, now
+        )
+        totals[shift.user_id] = totals.get(shift.user_id, 0) + minutes
 
     ranking = [
         UserMonthlyEntry(

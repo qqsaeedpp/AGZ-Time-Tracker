@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     timezone: str = "Asia/Tehran"
 
     daily_report_hour: int = 23
-    daily_report_minute: int = 0
+    daily_report_minute: int = 59
 
     log_level: str = "INFO"
     log_file: str = "logs/bot.log"

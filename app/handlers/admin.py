@@ -613,7 +613,7 @@ async def install_report_target(message: Message, db_user: User) -> None:
     # source message is a topic message, so we don't pass the thread id again.
     await message.answer(
         "✅ مقصد گزارش روزانه ثبت شد.\n\n"
-        "از این پس گزارش روزانه هر شب ساعت ۲۳:۰۰ به وقت تهران در همین بخش "
+        "از این پس گزارش روزانه هر شب ساعت ۲۳:۵۹ به وقت تهران در همین بخش "
         "ارسال می‌شود."
     )
     logger.info(

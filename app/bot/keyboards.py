@@ -116,10 +116,14 @@ def main_menu(
 ) -> InlineKeyboardMarkup:
     rows = [
         [_btn(CB.START_SHIFT, overrides), _btn(CB.END_SHIFT, overrides)],
-        [_btn(CB.MONTHLY_REPORT, overrides), _btn(CB.DAILY_REPORT, overrides)],
-        [_btn(CB.STATUS, overrides), _btn(CB.TODAY, overrides)],
-        [_btn(CB.SUPPORT, overrides)],
     ]
+    # Daily/monthly reports are manager-only; normal users never see them.
+    if is_owner:
+        rows.append(
+            [_btn(CB.MONTHLY_REPORT, overrides), _btn(CB.DAILY_REPORT, overrides)]
+        )
+    rows.append([_btn(CB.STATUS, overrides), _btn(CB.TODAY, overrides)])
+    rows.append([_btn(CB.SUPPORT, overrides)])
     if is_owner:
         rows.append([_btn(CB.ADMIN_PANEL, overrides)])
     return InlineKeyboardMarkup(inline_keyboard=rows)
